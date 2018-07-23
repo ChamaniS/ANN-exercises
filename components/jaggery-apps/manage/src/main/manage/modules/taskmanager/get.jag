@@ -1,0 +1,612 @@
+<%
+var ws = require("ws");
+var log=new Log();
+
+var getTasks = function (filterCategory,taskType) {
+	var headers = {"Authorization":"Basic " + session.get("auth")};
+	var site = require("/site/conf/site.json");
+    var businessProcessEngineUrl = site.workflows.businessProcessEngineBaseUrl;
+	var user = jagg.getUser().username.toLowerCase();
+	var roleArray = session.get("roles");
+	var string = "";
+	for(var k=0; k<roleArray.length; k++){
+	    if (k == (roleArray.length-1)){
+	       string = string + roleArray[k];
+	    } else {
+	       string = string + roleArray[k] + ",";
+	    }
+
+	}
+	var processType = "";
+	//Get required process name corresponding to task type
+	if (taskType == "ApproveApplication") {
+	   processType = site.workflows.applicationCreationBusinessProcess;
+	} else if (taskType == "ApproveSubscription"){
+	   processType = site.workflows.subscriptionCreationBusinessProcess;
+	} else {
+	   processType = "Invalid Process Type";
+	}
+
+
+	var task = [];
+	//Get claimable task list
+	//todo: get both claimable and assigned tasks from a sinple API call and assign status accordingly
+	//size is hard coded to '100' to stop UI loading issues. the proper fix is to implement pagination correctly by
+	//first getting the count of tasks, and then doing activiti API calls to get relevant portion for that particular page
+	var tasks = get(businessProcessEngineUrl + "runtime/tasks?candidateGroups=" + encodeURIComponent(string) + "&size=1000" +
+	"&processDefinitionKey=" + processType, null, headers,
+	"json" ).data;
+        if (log.isDebugEnabled()) {
+            log.debug("BPS BPMN REST API response: " + stringify(tasks));
+        }
+
+        //Check for error response
+        if (tasks.errorMessage != undefined) {
+            throw "Error " + tasks.statusCode + " : " + tasks.errorMessage;
+        }
+
+        for(var i=0; i < tasks.data.length; i++){
+            var processDefinitionId = tasks.data[i].processDefinitionId;
+            var dueDate = tasks.data[i].dueDate;
+            if(dueDate == null){ dueDate = "Not available"; }
+            var taskName = tasks.data[i].name;
+            var taskId = tasks.data[i].id;
+            var time = tasks.data[i].createTime;
+            var status = "READY";
+            //get required application details from process instance variables
+            var applicationNameVariable = get(businessProcessEngineUrl + "runtime/tasks/" +
+            taskId + "/variables/applicationName",null, headers,"json" ).data;
+            var applicationIdVariable = get(businessProcessEngineUrl + "runtime/tasks/" +
+            taskId + "/variables/applicationId",null, headers,"json" ).data;
+            var operator = get(businessProcessEngineUrl + "runtime/tasks/" +
+            taskId + "/variables/operator",null, headers,"json" ).data;
+
+           if(taskName == null){ taskName = "Not available"; }
+
+           if( taskType =="ApproveApplication" || !operator.value ){
+            task.push({
+                id:taskId,
+                name:taskName,
+                applicationName:applicationNameVariable.value,
+                status:status,
+                createdTime:time,
+                date:dueDate
+            });}else{
+
+            	    var mod = jagg.module("manager");
+                    var storeHostObject = mod.getOperatorsHostObject(); //changed from get getstoreObj
+                    var appStatus = storeHostObject.getAppStatus(applicationIdVariable.value,operator.value);
+            
+            if(appStatus == true){
+                task.push({
+                id:taskId,
+                name:taskName,
+                applicationName:applicationNameVariable.value,
+                applicationId:applicationIdVariable.value,
+                status:status,
+                createdTime:time,
+                date:dueDate
+                });
+             }
+            }
+            
+
+        }
+
+		//size is hard coded to '100' to stop UI loading issues. the proper fix is to implement pagination correctly by
+		//first getting the count of tasks, and then doing activiti API calls to get relevant portion for that particular page
+        var assignedTasks = get(businessProcessEngineUrl + "runtime/tasks?assignee=" + encodeURIComponent(user) + "&size=1000" +
+        "&processDefinitionKey=" + processType, null,
+        headers, "json" ).data;
+                if (log.isDebugEnabled()) {
+                    log.debug("BPS BPMN REST API response: " + stringify(assignedTasks));
+                }
+
+                //Check for error response
+                if (assignedTasks.errorMessage != undefined) {
+                    throw "Error " + assignedTasks.statusCode + " : " + assignedTasks.errorMessage;
+                }
+                for(var i=0; i < assignedTasks.data.length; i++){
+                    var processDefinitionId = assignedTasks.data[i].processDefinitionId;
+                    var dueDate = assignedTasks.data[i].dueDate;
+                    if(dueDate == null){ dueDate = "Not available"; }
+                    var taskName = assignedTasks.data[i].name;
+                    var taskId = assignedTasks.data[i].id;
+                    var time = assignedTasks.data[i].createTime;
+                    var status = "RESERVED";
+                    if(taskName == null){ taskName = "Not available"; }
+                    //sample to get required application details from variables
+                    var applicationNameVariable = get(businessProcessEngineUrl + "runtime/tasks/" +
+                    taskId + "/variables/applicationName",null, headers,"json" ).data;
+                    task.push({
+                        id:assignedTasks.data[i].id,
+                        name:taskName,
+                        status:status,
+                        applicationName:applicationNameVariable.value,
+                        createdTime:time,
+                        date:dueDate
+                    });
+                }
+
+    return task;
+
+};
+
+var parseResponse=function parseResponse(response,taskType,endpoint){
+	var tasks=response.*::taskSimpleQueryResultSet.*::row
+	var tasksObject=[];
+
+	for(var i=0; i<tasks.length(); i++){
+		var task={
+		};
+		var entry=tasks[i];
+
+		var taskName= entry.*::name.text();
+		var status = entry.*::status.text();
+		var id = entry.*::id.text();
+
+		if(taskName.indexOf(taskType)>=0 && status!='COMPLETED'){
+			var taskOwnedByLoggedUser= isTaskOwnedByLoggedUser(endpoint,id);
+			if(((status!='IN_PROGRESS')&& (status!='RESERVED'))||((status=='IN_PROGRESS')&& taskOwnedByLoggedUser)||((status=='RESERVED')&& taskOwnedByLoggedUser)) {
+				var presentationSubject = entry.*::presentationSubject.text();
+				var createdTime = entry.*::createdTime.text();
+				createdTime=createdTime.substring(0,10) +'  -  ' +createdTime.substring(11,29);
+
+				task.id=id;
+				task.status=status;
+				task.presentationSubject=presentationSubject;
+				task.createdTime=createdTime;
+				tasksObject.push(task);
+			}
+		}
+	}
+
+	return tasksObject;
+
+};
+
+var isTaskOwnedByLoggedUser=function(endpoint,taskId){
+	var username=session.get("logged.user").username;
+	var version = new ws.WSRequest();
+	var options = new Array();
+	options.useSOAP = 1.2;
+	options.action = "http://docs.oasis-open.org/ns/bpel4people/ws-humantask/api/200803/loadTask";
+	var cookie=session.get("workflowCookie");
+
+	if (cookie==null) {
+		print({
+			error:true,
+			message:msg.error.loginRequired(action)
+		});
+		return;
+	}else{
+		options["HTTPHeaders"] = [
+		{
+			name : "Cookie", value :cookie },
+			];
+
+			var payload = '<ns:loadTask xmlns:ns="http://docs.oasis-open.org/ns/bpel4people/ws-humantask/api/200803" xmlns:ns1="http://docs.oasis-open.org/ns/bpel4people/ws-humantask/types/200803">'+
+			'<ns:identifier>'+parseInt(taskId)+'</ns:identifier></ns:loadTask>';
+			var response;
+
+
+			try {
+
+				version.open(options,endpoint, false);
+				version.send(payload);
+				response = version.responseE4X;
+				var actualOwner=response.*::taskAbstract.*::actualOwner;
+				var store = jagg.module("manager").getAPIStoreObj();
+				var isEmailLoginEnabled=store.isEnableEmailUsername();
+				if(!isEmailLoginEnabled && (username.indexOf("@") != -1)){
+					username=username.split("@")[0];
+				}
+				if(username==actualOwner){
+
+					return true;
+				}
+				else{
+					return false;
+				}
+
+			} catch (e) {
+				log.error(e.toString());
+				session.put("showLogin", "true");
+				return false;
+			}
+	}
+};
+
+// Returns the list of tiers related to the specified subscription.
+var getSubscriptionTiers = function (taskId) {
+	var version = new ws.WSRequest();
+	var options = new Array();
+	options.useSOAP = 1.2;
+	options.action = "http://docs.oasis-open.org/ns/bpel4people/ws-humantask/api/200803/getInput";
+	var cookie=session.get("workflowCookie");
+	options["HTTPHeaders"] = [
+	{
+		name : "Cookie", value :cookie },
+		];
+
+		var site = require("/site/conf/site.json");
+		var prefixEndpoint = site.workflows.subscriptionWorkFlowServerURL;
+
+		var payload = '<ns:getInput xmlns:ns="http://docs.oasis-open.org/ns/bpel4people/ws-humantask/api/200803">' +
+		'<ns:identifier>' + taskId + '</ns:identifier>' +
+		'</ns:getInput>';
+		var result;
+		var endpoint=prefixEndpoint+"HumanTaskClientAPIAdmin/";
+
+		try {
+
+			version.open(options,endpoint, false);
+			version.send(payload);
+			result = version.responseE4X;
+
+			return parseTaskInputResponse(result,endpoint);
+
+		} catch (e) {
+			log.error(e.toString());
+			session.put("showLogin", "true");
+			return null;
+		}
+};
+
+// Parse the response received from the 'getInput' admin service (HumanTaskClientAPIAdmin) invocation.
+var parseTaskInputResponse = function parseTaskInputResponse(response,endpoint) {
+
+	var tiersObject=[];
+	var tiers;
+
+	var SubscriptionApprovalData = new XML((response.*::taskData).toString());
+	var tiers = SubscriptionApprovalData.*::tiers.*::tier;
+
+	for(var i = 0; i < tiers.length(); i++) {
+		var tier = {
+		};
+		var entry = tiers[i];
+
+		var tierName = entry.*::tierName.text();
+		var tierDisplayName = entry.*::tierDisplayName.text();
+
+		tier.name = tierName;
+		tier.displayName = tierDisplayName;
+		tiersObject.push(tier);
+	}
+	return tiersObject;
+
+};
+
+// Returns the task details
+function getTaskDetails(taskId) {
+	var version = new ws.WSRequest();
+	var options = new Array();
+	options.useSOAP = 1.2;
+	options.action = "http://docs.oasis-open.org/ns/bpel4people/ws-humantask/api/200803/getInput";
+	var cookie=session.get("workflowCookie");
+	options["HTTPHeaders"] = [
+	{
+		name : "Cookie", value :cookie },
+		];
+
+		var site = require("/site/conf/site.json");
+		var prefixEndpoint = site.workflows.subscriptionWorkFlowServerURL;
+
+		var payload = '<ns:getInput xmlns:ns="http://docs.oasis-open.org/ns/bpel4people/ws-humantask/api/200803">' +
+		'<ns:identifier>' + taskId + '</ns:identifier>' +
+		'</ns:getInput>';
+		var result;
+		var endpoint=prefixEndpoint+"HumanTaskClientAPIAdmin/";
+
+		try {
+
+			version.open(options,endpoint, false);
+			version.send(payload);
+			result = version.responseE4X;
+		//	log.info("Task Details: " + stringify(result));
+
+			return result;
+
+		} catch (e) {
+			log.error(e.toString());
+			session.put("showLogin", "true");
+			return null;
+		}
+};
+
+function getApplicationDetails(taskId){
+    	try {
+    		var site = require("/site/conf/site.json");
+    		var businessProcessEngineUrl = site.workflows.businessProcessEngineBaseUrl;
+            var headers = {"Authorization":"Basic " + session.get("auth")};
+            var applicationData = get(businessProcessEngineUrl + "runtime/tasks/" +
+                        taskId + "/variables",null, headers,"json" ).data;
+
+            var applicationName, applicationDescription, username,tiersList,appId;
+            var applicationDetails = new Object();
+            if (applicationData.length > 0) {
+                for (var k = 0; k < applicationData.length; k++) {
+                    var variable = applicationData[k];
+                    var varName = variable.name;
+                    switch (varName) {
+                        case "tiersStr":
+                            //hard coded until tiers are sent from executor
+                            tiersList = variable.value;
+                            break;
+                        case "applicationName":
+                            applicationName = variable.value;
+                            break;
+                        case "applicationId":
+                            appId = variable.value;
+                            break;
+                        case "description":
+                            applicationDescription = variable.value;
+                            break;
+                        case "userName":
+                            username = variable.value;
+                            break;
+                    }
+                }
+
+                applicationDetails.applicationName = applicationName;
+                log.debug("Application name" + applicationName);
+                applicationDetails.applicationDescription = applicationDescription;
+                applicationDetails.userName = username;
+                applicationDetails.taskId = taskId;
+               // log.info("tiersList :"+tiersList +"userName"+username);
+               // var listTiers = "Gold,Unlimited"
+                var tiers = tiersList.split(",");
+                var tiersObject=[];
+                for(var i = 0; i < tiers.length; i++) {
+                	if (tiers[i] != "") {
+                        var tier = {};
+                        tier.name = tiers[i];
+                        tier.displayName = tiers[i];
+                        tier.attributes = "";
+                        tiersObject.push(tier);
+                	}
+                }
+                applicationDetails.tiers = tiersObject;
+            }
+
+            return applicationDetails;
+
+    	} catch (e) {
+    		log.error(e.toString());
+    		session.put("showLogin", "true");
+    		return null;
+    	}
+};
+
+function parseApplicationDetailsResponse(response, endpoint, taskId){
+	var applicationDetails = new Object();
+	var tiersObject=[];
+	var tiers;
+	var task_id = taskId;
+	applicationDetails.taskId = task_id;
+	var AppApprovalData = new XML((response.*::taskData).toString());
+
+	var applicationName = AppApprovalData.*::applicationName.text();
+	var applicationDescription = AppApprovalData.*::applicationDescription.text();
+	var userName = AppApprovalData.*::userName.text();
+	applicationDetails.applicationName = applicationName;
+	applicationDetails.applicationDescription = applicationDescription;
+	applicationDetails.userName = userName;
+
+	var tiers = AppApprovalData.*::tiers.*::tier;
+
+	for(var i = 0; i < tiers.length(); i++) {
+		var tier = {
+		};
+		var entry = tiers[i];
+		var tierName = entry.*::tierName.text();
+		var tierDisplayName = entry.*::tierDisplayName.text();
+		var tierAttributes = entry.*::tierAttributes;
+		var tierAttribute = tierAttributes.*::tierAttribute;
+
+		var tier_attributes = [];
+		for (j = 0; j < tierAttribute.length(); j++) {
+			var tier_attribute = {
+			};
+			var tierAtt = tierAttribute[j];
+			var attName = tierAtt.*::tierAttributeName.text();
+			var attVal = tierAtt.*::tierAttributevalue.text();
+				
+			if(attVal.length() == 0) {
+				attVal = tierAtt.*::tierAttributevalue.*;
+			}
+
+			tier_attribute.attributeName = attName;
+			tier_attribute.attributeValue = attVal;
+			tier_attributes[j] = tier_attribute;
+		}
+		tier.name = tierName;
+		tier.displayName = tierDisplayName;
+		tier.attributes = tier_attributes;
+		tiersObject.push(tier);
+	}
+	applicationDetails.tiers = tiersObject;
+	return applicationDetails;
+}
+
+function getSubscriptionDetails(taskId){
+	var subscriptionDetails;
+	try {
+		var site = require("/site/conf/site.json");
+		var businessProcessEngineUrl = site.workflows.businessProcessEngineBaseUrl;
+		var headers = {"Authorization":"Basic " + session.get("auth")};
+        var subscriptionData = get(businessProcessEngineUrl + "runtime/tasks/" +
+                    taskId + "/variables",null, headers,"json" ).data;
+
+        var applicationName, applicationDescription, subscriber,apiName, apiVersion, appId, apiId, operatorId,tiersList;
+        var subscriptionDetails = new Object();
+
+        if (subscriptionData.length > 0) {
+            for (var k = 0; k < subscriptionData.length; k++) {
+                var variable = subscriptionData[k];
+                var varName = variable.name;
+                switch (varName) {
+                    case "apiId":
+                        apiId = variable.value;
+                        break;
+                    case "apiVersion":
+                        apiVersion = variable.value;
+                        break;
+                    case "apiTiers":
+                        tiersList = variable.value;
+                        break;
+                    case "applicationName":
+                        applicationName = variable.value;
+                        break;
+                    case "applicationId":
+                        appId = variable.value;
+                        break;
+                    case "operator":
+                        operatorId = variable.value;
+                        break;
+                    case "apiName":
+                        apiName = variable.value;
+                        break;
+                    case "applicationDescription":
+                        applicationDescription = variable.value;
+                        break;
+                    case "subscriber":
+                        subscriber = variable.value;
+                        break;
+                }
+            }
+
+            subscriptionDetails.applicationName = applicationName;
+            subscriptionDetails.applicationDescription = applicationDescription;
+            subscriptionDetails.subscriber = subscriber;
+            subscriptionDetails.apiNameVersion = apiName + " - " + apiVersion;
+            subscriptionDetails.appId = appId;
+            subscriptionDetails.apiId = apiId;
+            subscriptionDetails.operatorId = operatorId;
+            subscriptionDetails.apiName = apiName;
+            subscriptionDetails.taskId = taskId;
+
+            var tiers = tiersList.split(",");
+            var tiersObject=[];
+            for(var i = 0; i < tiers.length; i++) {
+            	if (tiers[i] != "") {
+                    var tier = {};
+                    tier.name = tiers[i];
+                    tier.displayName = tiers[i];
+                    tier.attributes = "";
+                    tiersObject.push(tier);
+            	}
+            }
+            subscriptionDetails.tiers = tiersObject;
+        }
+
+        return subscriptionDetails;
+
+	} catch (e) {
+		log.error(e.toString());
+		session.put("showLogin", "true");
+		return null;
+	}
+};
+
+
+
+function parseSubscriptionDetailsResponse(response, endpoint, taskId){
+	var subscriptionDetails = new Object();
+	var tiersObject=[];
+	var tiers;
+	var task_id = taskId;
+	subscriptionDetails.taskId = task_id;
+
+	var SubscriptionApprovalData = new XML((response.*::taskData).toString());
+	
+	var appId = SubscriptionApprovalData.*::applicationId.text();
+	var apiId = SubscriptionApprovalData.*::apiID.text();
+	var operatorId = SubscriptionApprovalData.*::operatorID.text();
+
+	var applicationName = SubscriptionApprovalData.*::applicationName.text();
+	var applicationDescription = SubscriptionApprovalData.*::applicationDescription.text();
+	var subscriber = SubscriptionApprovalData.*::subscriber.text();
+	var apiName = SubscriptionApprovalData.*::apiName.text();
+	var apiVersion = SubscriptionApprovalData.*::apiVersion.text();
+	subscriptionDetails.applicationName = applicationName;
+	subscriptionDetails.applicationDescription = applicationDescription;
+	subscriptionDetails.subscriber = subscriber;
+	subscriptionDetails.apiNameVersion = apiName + " - " + apiVersion;
+	
+	subscriptionDetails.appId = appId;
+	subscriptionDetails.apiId = apiId;
+	subscriptionDetails.operatorId = operatorId;
+	subscriptionDetails.apiName = apiName;
+
+	var tiers = SubscriptionApprovalData.*::tiers.*::tier;
+
+	for(var i = 0; i < tiers.length(); i++) {
+		var tier = {
+		};
+		var entry = tiers[i];
+		var tierName = entry.*::tierName.text();
+		var tierDisplayName = entry.*::tierDisplayName.text();
+		var tierAttributes = entry.*::tierAttributes;
+		var tierAttribute = tierAttributes.*::tierAttribute;
+
+		var tier_attributes = [];
+		for (j = 0; j < tierAttribute.length(); j++) {
+			var tier_attribute = {
+			};
+			var tierAtt = tierAttribute[j];
+			var attName = tierAtt.*::tierAttributeName.text();
+			var attVal = tierAtt.*::tierAttributevalue.text();
+
+			if(attVal.length() == 0) {
+				attVal = tierAtt.*::tierAttributevalue.*;
+			}
+
+			tier_attribute.attributeName = attName;
+			tier_attribute.attributeValue = attVal;
+			tier_attributes[j] = tier_attribute;
+		}
+		tier.name = tierName;
+		tier.displayName = tierDisplayName;
+		tier.attributes = tier_attributes;
+		tiersObject.push(tier);
+	}
+	subscriptionDetails.tiers = tiersObject;
+	return subscriptionDetails;
+}
+
+function getAllTiers(){
+	var log = new Log();
+
+
+	var workflow = jagg.module("manager").getWorkflowHostObject();
+	var tiers = [];
+	try {
+		tiers = workflow.getTierDetails();
+// 		log.info("Tier List: " + stringify(tiers));
+		return {error:false, data : tiers};
+
+	} catch (e) {
+		log.error(e.message);
+		return { error:true,message:e.message};
+	}
+}
+
+function getRatesList(apiName, opName){
+	var workflow, result;
+		workflow = jagg.module("manager").getWorkflowHostObject();
+		
+		try {
+			result = workflow.getSubscriptionRatesForOperator(apiName, opName);
+			if (result == null) {
+				return {error:true};
+			} else {
+				return {error:false,result:result};
+			}
+		} catch (e) {
+			log.error(e.message);
+			return { error:e,result:null};
+		}
+}
+%>

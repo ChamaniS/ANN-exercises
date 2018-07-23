@@ -1,0 +1,108 @@
+<%
+include("/jagg/jagg.jag");
+
+(function () {
+    var mod, obj, result, username,
+            action = request.getParameter("action"),
+            site = require("/site/conf/site.json"),
+            msg = require("/site/conf/ui-messages.jag");
+    if (action === "login") {
+        mod = jagg.module("user");
+        username = request.getParameter("username");
+
+	if (username.indexOf("@") != -1) {
+            var s=username.split("@");
+            username=s[0] + "@" + s[1].toLowerCase();
+        }
+	
+        var tenant = request.getParameter("tenant");
+        var password = request.getParameter("password");
+        result = mod.login(username, password, tenant);
+        if (result.error) {
+            obj = {
+                error:result.error,
+                message:result.message
+            };
+        } else {
+            var roles = mod.getUserRoles(username,password);
+            //todo:Activiti API invocation credentials should be given as configurables
+            var encodedString = encode('kermit:kermit');
+            session.put("auth", encodedString);
+            //Add user roles to the current session
+            session.put("roles", roles);
+            obj = {
+                error:false
+            }
+        }
+        print(obj);
+    } else if (action === "logout") {
+        jagg.setUser(null);
+        print({
+            error:false
+        });
+
+    } else if (action === "loginWithSAMLToken") {
+        var log = new Log();
+
+        mod = jagg.module("user");
+        var samlToken = request.getParameter("samlToken");
+        result = mod.loginWithSAMLToken(samlToken);
+
+        if (result.error) {
+            obj = {
+                error:result.error,
+                message:result.message
+            };
+        } else {
+            obj = {
+                error:false
+            }
+        }
+
+        jagg.setUser({username:result.username, cookie:result.cookie});
+        session.put("showLogin", "false");
+
+        print(obj);
+
+    } else {
+        print({
+            error:true,
+            message:msg.error.invalidAction(action)
+        });
+    }
+}());
+
+function encode(data) {
+  var b64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  var o1, o2, o3, h1, h2, h3, h4, bits, i = 0,
+    ac = 0,
+    enc = '',
+    tmp_arr = [];
+
+  if (!data) {
+    return data;
+  }
+
+  do { // pack three octets into four hexets
+    o1 = data.charCodeAt(i++);
+    o2 = data.charCodeAt(i++);
+    o3 = data.charCodeAt(i++);
+
+    bits = o1 << 16 | o2 << 8 | o3;
+
+    h1 = bits >> 18 & 0x3f;
+    h2 = bits >> 12 & 0x3f;
+    h3 = bits >> 6 & 0x3f;
+    h4 = bits & 0x3f;
+
+    // use hexets to index into b64, and append result to encoded string
+    tmp_arr[ac++] = b64.charAt(h1) + b64.charAt(h2) + b64.charAt(h3) + b64.charAt(h4);
+  } while (i < data.length);
+
+  enc = tmp_arr.join('');
+
+  var r = data.length % 3;
+
+  return (r ? enc.slice(0, r - 3) : enc) + '==='.slice(r || 3);
+}
+%>

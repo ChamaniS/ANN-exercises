@@ -1,0 +1,21 @@
+<%
+include("/jagg/jagg.jag");
+var log=new Log();
+var ws = require("ws");
+
+//No task action is available for start.
+var startTask = function (taskId,endpoint) {
+try{
+return {
+error:false
+}
+
+}catch (e) {
+log.error(e.toString());
+return {
+error:true
+};
+
+}
+};
+%>

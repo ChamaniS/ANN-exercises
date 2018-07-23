@@ -1,0 +1,24 @@
+<% jagg.template("home", function(inputs, outputs, jagg) {
+%>
+<link rel="stylesheet" type="text/css" href="<%=jagg.getAbsoluteUrl(jagg.getThemeFile("css/styles-operator.css"))%>" media="all"/>
+<div id="listing">
+    <div class="title-section">
+        <h2>Home</h2>
+    </div>
+    <div class="content-section shadow-up">
+        <div class="content-data span10">
+        	
+			<div class="container-fluid span12">
+				<div class="row-fluid">
+				</div>
+			</div>
+			
+			<div class="row-fluid">
+				<div class="content-data span10">
+					<img src="<%=jagg.getAbsoluteUrl(jagg.getThemeFile("images/logo.png"))%>">
+				</div>
+			</div>
+        </div>
+    </div>
+</div>
+<% }); %>

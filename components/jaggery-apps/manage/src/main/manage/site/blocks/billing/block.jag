@@ -1,0 +1,32 @@
+<%
+jagg.block("billing", {
+    initializer:function (data) {
+
+    } ,
+ getInputs:function () {
+        return {
+            "usage":null
+        }
+    }
+      ,
+ getOutputs:function (inputs) {
+       
+ 	var data, user = inputs.user;
+	var isOperator = jagg.getUser().operator;
+ 	if (user.isAdmin){
+ 		var operatorbillingModule = jagg.module("operatorbilling");
+ 		var result = operatorbillingModule.getAllSubscribers();
+ 		data = result.data;
+ 	} 
+ 	else if(isOperator != null){
+		var operatorbillingModule = jagg.module("operatorbilling");
+		var result = operatorbillingModule.getSubscribersByOperator(isOperator);
+		data = result.data;
+	} 
+ 	return {
+ 		"subscribers" : data
+ 	};
+ }
+
+});
+%>

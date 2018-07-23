@@ -1,0 +1,16 @@
+<% jagg.template("branding/terms-conditions", function(inputs, outputs, jagg) {
+%>
+<link rel="stylesheet" type="text/css" href="<%=jagg.getAbsoluteUrl(jagg.getThemeFile("css/styles-operator.css"))%>" media="all"/>
+<div id="listing">
+    <div class="title-section">
+        <h2>Terms and Conditions</h2>
+    </div>
+    <div class="content-section shadow-up">
+        <div class="content-data span5">
+			<p lang="en-GB" align="JUSTIFY">
+    <h3><strong>Terms of Service </strong></h3>
+
+        </div>
+    </div>
+</div>
+<% }); %>

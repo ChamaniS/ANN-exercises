@@ -1,0 +1,26 @@
+<%
+jagg.block("billing-nb", {
+    initializer:function (data) {
+
+    } ,
+ getInputs:function () {
+        return {
+            "usage":null
+        }
+    }
+      ,
+ getOutputs:function (inputs) {
+       
+ 	var data, user = inputs.user;
+ 	if (user.isAdmin){
+ 		var operatorbillingModule = jagg.module("operatorbilling");
+ 		var result = operatorbillingModule.getAllSubscribers();
+ 		data = result.data;
+ 	}
+ 	return {
+ 		"subscribers" : data
+ 	};
+ }
+
+});
+%>

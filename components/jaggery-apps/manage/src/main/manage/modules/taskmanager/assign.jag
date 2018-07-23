@@ -1,0 +1,22 @@
+<%
+include("/jagg/jagg.jag");
+var log=new Log();
+var ws = require("ws");
+
+var assignTask = function (taskId) {
+    var site = require("/site/conf/site.json");
+    var businessProcessEngineUrl = site.workflows.businessProcessEngineBaseUrl;
+
+    var headers = {"Authorization":"Basic " + session.get("auth"),
+                   "Content-Type": "application/json"
+                   };
+	var body = {
+                "action" : "claim",
+                "assignee" : jagg.getUser().username.toLowerCase()
+            };
+	var result = post(businessProcessEngineUrl + "runtime/tasks/"+taskId, JSON.stringify(body), headers, "json");
+    return {
+    error:false
+    };
+};
+%>

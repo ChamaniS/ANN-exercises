@@ -1,0 +1,135 @@
+<%
+include("/jagg/jagg.jag");
+
+(function () {
+    var mod, obj, result, username,
+    		action = request.getParameter("action"),
+            site = require("/site/conf/site.json"),
+            msg = require("/site/conf/ui-messages.jag");
+
+	var adminComment = request.getParameter("comment");
+	var log = new Log();
+    if(jagg.getUser() == null){
+        print({
+            error:true,
+            message:'timeout'
+        });
+    }else{
+
+        if (action === "getAllTasks") {
+        mod = jagg.module("taskmanager");
+        var numberOfTasks= request.getParameter("numberOfTasks");
+        var pageNumber= request.getParameter("pageNumber");
+        var filterCategory = request.getParameter("filterCategory");
+        var taskType = request.getParameter("taskType");
+        result = mod.getTasks(numberOfTasks,pageNumber,filterCategory,taskType);
+        if (result.error==true) {
+        obj = {
+                      error:true,
+                      message:result.message
+              };
+              } else {
+                    obj = {
+                        error:false,
+                        tasks:result
+                    }
+              }
+              print(obj);
+
+        }else if (action === "startTask") {
+        	
+        	
+         var mod = jagg.module("taskmanager");
+         var taskId = request.getParameter("taskId");
+         var taskType = request.getParameter("taskType");
+         result = mod.startTask(taskId);
+
+         if (result.error==true) {
+                 obj = {
+                               error:true,
+                               message:result.message
+                       };
+                       } else {
+                             obj = {
+                                 error:false
+
+                             }
+                       }
+         print(obj);
+
+        }else if (action === "completeTask") {
+         var mod = jagg.module("taskmanager");
+         var taskId = request.getParameter("taskId");
+         var taskType= request.getParameter("taskType");
+         var status= request.getParameter("status");
+         var taskName = request.getParameter("taskName");
+         var description= request.getParameter("description");
+         var selectedTier= request.getParameter("selectedTier");
+         var selectedRate= request.getParameter("selectedRate");
+         username = jagg.getUser().username;
+         var currentDate = new Date();
+		 var webAppURL = site.webapp_URL;
+
+       /* if(taskType=="subscription"){
+     	 var strBackend = webAppURL + "WorkFlowComments/AdminComments/workflow/subscription/comments?taskID=" + taskId + "&comments=" + encodeURIComponent(adminComment) + "&status=" + status + "&description=" + encodeURIComponent(description);
+		 
+		 log.info("Subscription URL: " + strBackend);
+	     var xhrd = new XMLHttpRequest();
+		 xhrd.open("GET", strBackend, true);//async=true
+		 xhrd.send();
+
+         } else if(taskType=="user-signup"){
+
+         } else if(taskType=="application"){
+ 			var strBackendApp = webAppURL + "WorkFlowComments/AdminComments/workflow/application/comments?taskID=" + taskId + "&comments=" + encodeURIComponent(adminComment) + "&status=" + status + "&description=" + encodeURIComponent(description);
+		
+            log.info("Application URL: " + strBackendApp);
+		    var xhr = new XMLHttpRequest();
+		    xhr.open("GET", strBackendApp, true);//async=true
+		    xhr.send();
+         }else if(taskType=="appRegistration"){
+
+         }*/
+
+         result = mod.completeTask(taskId,taskType,taskName,status,description,username,currentDate,selectedTier,selectedRate);
+         if (result.error==true) {
+         obj = {
+               error:true,
+               message:result.message
+               };
+               } else {
+                                     obj = {
+                                         error:false
+
+                                     }
+                               }
+                 print(obj);
+
+     }else if (action === "assignTask") {
+                 var mod = jagg.module("taskmanager");
+                 var taskId = request.getParameter("taskId");
+                 var taskType = request.getParameter("taskType");
+                 result = mod.assignTask(taskId);
+                 if (result.error==true) {
+                         obj = {
+                                       error:true,
+                                       message:result.message
+                               };
+                               } else {
+                                     obj = {
+                                         error:false
+
+                                     }
+                               }
+                 print(obj);
+
+        }
+        else {
+            print({
+                      error:true,
+                      message:msg.error.invalidAction(action)
+                  });
+        }
+    }
+}());
+%>
